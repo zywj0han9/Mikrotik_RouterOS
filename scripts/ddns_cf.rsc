@@ -9,13 +9,13 @@
 :local wanif    "Wan3"
 
 # Cloudflare section
-:local email       "johandouglaszyw+cloudflare@gmail.com"
-:local key         "PEpY_pP0zUpMJg7sXIenbogtQ6Zcum8WF0lPPX6f"
-:local zoneID      "61f1d6fe50ef7785045b6959df0bb234"
-:local recordsID   "05ff8c9cfc9756cf254d786cf0bf9df5"
+:local email       ""
+:local key         ""
+:local zoneID      ""
+:local recordsID   ""
 
 # Domain hostname
-:local hostName "home.c0despace.uk"
+:local hostName ""
 
 # DNS server for resolution
 :local dnsServer "1.1.1.1"
