@@ -3,8 +3,8 @@
 :global sendNotify do={
     :local message $1
     # debug
-    :local TGBOTTOKEN ""
-    :local TGUSERID ""
+    :local TGBOTTOKEN "7804964480:AAELoNlf4nNxc3I5r7Wc661lzadyJv7Ldpw"
+    :local TGUSERID "-1002134942278"
     :local TGAPIHOST "https://api.telegram.org"
     :put $TGBOTTOKEN
     :put $TGUSERID
