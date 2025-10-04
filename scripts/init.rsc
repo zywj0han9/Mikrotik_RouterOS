@@ -53,8 +53,8 @@
 # 目标“话题” ID（message_thread_id；不用话题可留空 "" 或 0）
 :global telegramTopicID 123456
 
-# 是否尝试把备份“文件本体”也发到 TG（通过 transfer.sh 中转）
-:global tgSendFiles no
+# 是否尝试把备份“文件本体”也发到 TG（通过 transfer.sh 中转，填 "yes" 或 "no"）
+:global tgSendFiles "no"
 
 # GeoIP（允许国家，逗号分隔；为空则不启用）
 :global geoipAllowedCountries "KR,CN"
