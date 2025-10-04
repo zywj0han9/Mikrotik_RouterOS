@@ -19,6 +19,7 @@
 # ========================================
 
 # LAN
+:global lanInterface "Lan"  # 默认 LAN 接口名
 :global lanSubnet "192.168.2.0/24"
 :global lanSubnetV6 "fd00::/64"
 :global adminPublicIP "203.0.113.100"
@@ -163,7 +164,8 @@
 :if ([/interface list find name=WAN] != "") do={ /interface list remove [find name=WAN] }
 /interface list add name=LAN comment="内部接口"
 /interface list add name=WAN comment="外部接口"
-/interface list member add list=LAN interface=Lan comment="主内网口"
+# 如需多个 LAN 接口，可复制下一行并改用其他自定义变量
+/interface list member add list=LAN interface=$lanInterface comment="主内网口"
 /interface list member add list=WAN interface=$wan1Interface comment="主外网口"
 /interface list member add list=WAN interface=$wan2Interface comment="备外网口"
 
