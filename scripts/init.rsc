@@ -357,9 +357,9 @@
 # ========================================
 :log info "步骤 7/18: 端口敲门..."
 /ip firewall filter add chain=input in-interface-list=WAN action=add-src-to-address-list address-list=port-knock-stage1 address-list-timeout=$knockTimeout protocol=tcp dst-port=$knockPort1
-/ ip firewall filter add chain=input in-interface-list=WAN action=add-src-to-address-list address-list=port-knock-stage2 address-list-timeout=$knockTimeout protocol=tcp dst-port=$knockPort2 src-address-list=port-knock-stage1
-/ ip firewall filter add chain=input in-interface-list=WAN action=add-src-to-address-list address-list=port-knock-stage3 address-list-timeout=1h protocol=tcp dst-port=$knockPort3 src-address-list=port-knock-stage2
-/ ip firewall filter add chain=input in-interface-list=WAN action=drop protocol=tcp dst-port=$knockPort1,$knockPort2,$knockPort3 comment="drop knock packets"
+/ip firewall filter add chain=input in-interface-list=WAN action=add-src-to-address-list address-list=port-knock-stage2 address-list-timeout=$knockTimeout protocol=tcp dst-port=$knockPort2 src-address-list=port-knock-stage1
+/ip firewall filter add chain=input in-interface-list=WAN action=add-src-to-address-list address-list=port-knock-stage3 address-list-timeout=1h protocol=tcp dst-port=$knockPort3 src-address-list=port-knock-stage2
+/ip firewall filter add chain=input in-interface-list=WAN action=drop protocol=tcp dst-port=$knockPort1,$knockPort2,$knockPort3 comment="drop knock packets"
 
 # （上面几行若出现前导空格导致错误，请删除斜杠后的空格再执行）
 
