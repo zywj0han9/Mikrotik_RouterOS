@@ -271,6 +271,19 @@
             /ip firewall raw set $geoRule disabled=no
             :log info "  - GeoIP RAW 规则已启用"
         }
+    } else={
+        :local geoRule [/ip firewall raw find where comment="RAW: GeoIP drop"]
+        :if ($geoRule != "") do={
+            :local isDisabled [/ip firewall raw get $geoRule disabled]
+            :if ($isDisabled = false || $isDisabled = "no") do={
+                /ip firewall raw set $geoRule disabled=yes
+                :log warning "  - GeoIP RAW 规则已暂时禁用（本次同步失败）"
+            } else={
+                :log warning "  - GeoIP RAW 规则保持禁用状态（本次同步失败）"
+            }
+        } else={
+            :log warning "  - 未找到 GeoIP RAW 规则，本次同步失败"
+        }
     }
 
     # 投递到话题群
