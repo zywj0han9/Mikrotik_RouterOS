@@ -599,7 +599,7 @@
 :local activeWan "WAN2 (WAN1 故障或禁用)"
 :if ($activeCount > 0) do={ :set activeWan "WAN1" }
 
-/:global tg_text ("[部署完成]\n"
+:global tg_text ("[部署完成]\n"
   . "LAN: " . $lanSubnet . "\n"
   . ($enableIPv6 = yes ? ("LANv6: " . $lanSubnetV6 . "\n") : "")
   . "SSH(路由器): " . $sshPort . "（需端口敲门）\n"
