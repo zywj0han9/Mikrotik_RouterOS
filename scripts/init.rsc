@@ -262,6 +262,17 @@
     }
     :log info ("GeoIP 完成: 成功 " . $totalImported . " 失败 " . $totalFailed)
 
+    :if ($totalImported > 0) do={
+        :local geoRule [/ip firewall raw find where comment="RAW: GeoIP drop"]
+        :if ($geoRule = "") do={
+            /ip firewall raw add chain=prerouting in-interface-list=WAN src-address-list=!geoip-allowed action=drop log=yes log-prefix="geoip_drop" limit=10,10:packet comment="RAW: GeoIP drop"
+            :log info "  - GeoIP RAW 规则已创建"
+        } else={
+            /ip firewall raw set $geoRule disabled=no
+            :log info "  - GeoIP RAW 规则已启用"
+        }
+    }
+
     # 投递到话题群
     :global tg_text ("[GeoIP 更新]\n成功: " . $totalImported . "\n失败: " . $totalFailed)
     /system script run tg_send
@@ -284,12 +295,25 @@
 /ip firewall raw add chain=prerouting action=drop dst-address-list=bogon comment="RAW: drop bogon dst"
 /ip firewall raw add chain=prerouting action=drop src-address-list=not_global_ipv4 in-interface-list=WAN comment="RAW: drop WAN private src"
 
-# GeoIP（名单非空才启用，避免首跑误封）
+# GeoIP（规则默认存在，仅在名单为空时禁用）
+:local geoRule [/ip firewall raw find where comment="RAW: GeoIP drop"]
+:if ($geoRule = "") do={
+  :set geoRule [/ip firewall raw add chain=prerouting in-interface-list=WAN src-address-list=!geoip-allowed action=drop log=yes log-prefix="geoip_drop" limit=10,10:packet disabled=yes comment="RAW: GeoIP drop"]
+  :log info "  - 已预创建 GeoIP RAW 规则（等待名单导入）"
+}
+
 :local _geoCount [/ip firewall address-list print count-only where list=geoip-allowed]
-:if ([:len $geoipAllowedCountries] > 0 && $_geoCount > 0) do={
-  /ip firewall raw add chain=prerouting in-interface-list=WAN src-address-list=!geoip-allowed action=drop log=yes log-prefix="geoip_drop" limit=10,10:packet comment="RAW: GeoIP drop"
+:if ([:len $geoipAllowedCountries] = 0) do={
+  /ip firewall raw set $geoRule disabled=yes
+  :log warning "  - 未配置 geoipAllowedCountries，GeoIP RAW 规则保持禁用"
 } else={
-  :log warning "  - GeoIP 名单为空或未启用，跳过 RAW GeoIP"
+  :if ($_geoCount = 0) do={
+    /ip firewall raw set $geoRule disabled=yes
+    :log warning "  - GeoIP 地址列表为空，GeoIP RAW 规则已禁用"
+  } else={
+    /ip firewall raw set $geoRule disabled=no
+    :log info ("  - GeoIP RAW 规则启用（条目: " . $_geoCount . ")")
+  }
 }
 
 # PSD 扫描检测
