@@ -575,7 +575,7 @@
 
 /:global tg_text ("[部署完成]\n"
   . "LAN: " . $lanSubnet . "\n"
-  . ($enableIPv6 = "yes" ? ("LANv6: " . $lanSubnetV6 . "\n") : "")
+  . ($enableIPv6 = yes ? ("LANv6: " . $lanSubnetV6 . "\n") : "")
   . "SSH(路由器): " . $sshPort . "（需端口敲门）\n"
   . "SSH映射: " . $mappedSSHPort . " -> " . $mappedSSHTarget . ":22\n"
   . "WinBox: " . $winboxPort . "\n"
