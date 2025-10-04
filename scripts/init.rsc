@@ -239,8 +239,20 @@
         :local c ""
         :if ($i < [:len $geoipAllowedCountries]) do={ :set c [:pick $geoipAllowedCountries $i ($i+1)] }
         :if ($c = "," || $i = [:len $geoipAllowedCountries]) do={
-            :if ([:len $temp] > 0) do={ :set ($countries->[:len $countries]) [:tolower $temp]; :set temp "" }
-        } else={ :set temp ($temp . $c) }
+            :if ([:len $temp] > 0) do={
+                :local normalized [:tolower $temp]
+                :while (([:len $normalized] > 0) && (([:pick $normalized 0 1] = " ") || ([:pick $normalized 0 1] = "\t"))) do={
+                    :set normalized [:pick $normalized 1 [:len $normalized]]
+                }
+                :while (([:len $normalized] > 0) && (([:pick $normalized ([:len $normalized]-1) [:len $normalized]] = " ") || ([:pick $normalized ([:len $normalized]-1) [:len $normalized]] = "\t"))) do={
+                    :set normalized [:pick $normalized 0 ([:len $normalized]-1)]
+                }
+                :if ([:len $normalized] > 0) do={ :set ($countries->[:len $countries]) $normalized }
+                :set temp ""
+            }
+        } else={
+            :if ($c != " " && $c != "\t") do={ :set temp ($temp . $c) }
+        }
     }
     :foreach i in=[/ip firewall address-list find list=geoip-allowed] do={ /ip firewall address-list remove $i }
     :local totalImported 0; :local totalFailed 0
