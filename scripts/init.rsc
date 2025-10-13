@@ -23,11 +23,22 @@
 :global knockWindow "60s"
 :global mgmtAllowMinutes 30
 :global debounceThreshold 3
+:global wgListenPort 51820
+:global wgAllowList "wg-allow"
 :global lanV6GW "fd00::1"
 :global pbrList "PBR_WAN2"
 :global conntrackMax 524288
+:global backupSecretKey "backup.password"
 :global backupPassword ""
 :global backupMaxKeep 40
+:global backupExportRsc false
+:global dropLogPrefix "SEC-DROP"
+
+# 读取备份口令（若在 /system script environment 中预置）
+:local envSecret [/system script environment find where name=$backupSecretKey]
+:if ([:len $envSecret] > 0) do={
+  :set backupPassword [/system script environment get $envSecret value-name=value]
+}
 
 # ---------- 工具函数 ----------
 :global ReplaceAll do={
@@ -151,6 +162,7 @@
   /ip firewall address-list add list=global_blacklist address=0.0.0.0 comment="占位符-勿删"
 }
 /ip firewall raw add chain=prerouting in-interface-list=WAN src-address-list=global_blacklist action=drop comment="[最优先] 全局黑名单"
+/ip firewall raw add chain=prerouting connection-state=invalid action=drop comment="RAW 预丢 INVALID"
 
 :if ([:len [/ip firewall address-list find where list=RFC1918 and address=10.0.0.0/8]] = 0) do={ /ip firewall address-list add list=RFC1918 address=10.0.0.0/8 }
 :if ([:len [/ip firewall address-list find where list=RFC1918 and address=172.16.0.0/12]] = 0) do={ /ip firewall address-list add list=RFC1918 address=172.16.0.0/12 }
@@ -158,7 +170,7 @@
 
 :local bogonList {"0.0.0.0/8"="本机网络";"100.64.0.0/10"="运营商级NAT";"127.0.0.0/8"="回环地址";"169.254.0.0/16"="链路本地";"192.0.2.0/24"="测试网段1";"198.18.0.0/15"="基准测试";"198.51.100.0/24"="测试网段2";"203.0.113.0/24"="测试网段3";"224.0.0.0/4"="组播";"240.0.0.0/4"="保留段";"255.255.255.255/32"="广播地址"}
 :foreach addr,desc in=$bogonList do={
-  :if ([:len [/ip firewall address-list find where list=BOGON and address=$addr]] = 0) do={
+:if ([:len [/ip firewall address-list find where list=BOGON and address=$addr]] = 0) do={
     /ip firewall address-list add list=BOGON address=$addr comment=$desc
   }
 }
@@ -173,10 +185,11 @@
 :if ([:len [/ip firewall address-list find where list=knock1 and address=0.0.0.0]] = 0) do={ /ip firewall address-list add list=knock1 timeout=$knockWindow address=0.0.0.0 comment="占位符-勿删" }
 :if ([:len [/ip firewall address-list find where list=knock2 and address=0.0.0.0]] = 0) do={ /ip firewall address-list add list=knock2 timeout=$knockWindow address=0.0.0.0 comment="占位符-勿删" }
 :if ([:len [/ip firewall address-list find where list=mgmt-allow and address=0.0.0.0]] = 0) do={ /ip firewall address-list add list=mgmt-allow timeout=($mgmtAllowMinutes . "m") address=0.0.0.0 comment="占位符-勿删" }
+:if ([:len [/ip firewall address-list find where list=$wgAllowList and address=0.0.0.0]] = 0) do={ /ip firewall address-list add list=$wgAllowList timeout=none address=0.0.0.0 comment="占位符-勿删" }
 
-/ip firewall filter add chain=input protocol=tcp dst-port=30000 in-interface-list=WAN action=add-src-to-address-list address-list=knock1 address-list-timeout=$knockWindow comment="Knock 1"
-/ip firewall filter add chain=input protocol=tcp dst-port=31000 in-interface-list=WAN src-address-list=knock1 action=add-src-to-address-list address-list=knock2 address-list-timeout=$knockWindow comment="Knock 2"
-/ip firewall filter add chain=input protocol=tcp dst-port=32000 in-interface-list=WAN src-address-list=knock2 action=add-src-to-address-list address-list=mgmt-allow address-list-timeout=($mgmtAllowMinutes . "m") comment="Knock 3 => mgmt-allow"
+/ip firewall filter add chain=input protocol=tcp dst-port=30000 in-interface-list=WAN limit=5/1m,10 log=yes log-prefix="KNOCK1 " action=add-src-to-address-list address-list=knock1 address-list-timeout=$knockWindow comment="Knock 1"
+/ip firewall filter add chain=input protocol=tcp dst-port=31000 in-interface-list=WAN src-address-list=knock1 limit=5/1m,10 log=yes log-prefix="KNOCK2 " action=add-src-to-address-list address-list=knock2 address-list-timeout=$knockWindow comment="Knock 2"
+/ip firewall filter add chain=input protocol=tcp dst-port=32000 in-interface-list=WAN src-address-list=knock2 limit=5/1m,10 log=yes log-prefix="KNOCK3 " action=add-src-to-address-list address-list=mgmt-allow address-list-timeout=($mgmtAllowMinutes . "m") comment="Knock 3 => mgmt-allow"
 
 # ---------- WAN Winbox（敲门放行）----------
 :log info "配置 WAN Winbox"
@@ -186,37 +199,52 @@
 /ip firewall raw add chain=prerouting in-interface-list=WAN src-address-list=mgmt-allow protocol=tcp dst-port=8291 action=accept comment="WAN Winbox 敲门 RAW"
 /ip firewall raw add chain=prerouting in-interface-list=WAN protocol=tcp dst-port=8291 action=drop comment="WAN Winbox 未授权 RAW 预丢"
 
+# ---------- WireGuard 入口防护（可选）----------
+:if ($wgListenPort > 0) do={
+  :log info ("配置 WireGuard 端口防护（" . $wgListenPort . ")")
+  :put ("配置 WireGuard 端口防护（" . $wgListenPort . ")")
+
+  /ip firewall filter add chain=input in-interface-list=WAN protocol=udp dst-port=$wgListenPort connection-state=established,related action=accept comment="WireGuard EST/REL"
+  /ip firewall filter add chain=input in-interface-list=WAN protocol=udp dst-port=$wgListenPort src-address-list=$wgAllowList action=accept comment="WireGuard 白名单"
+  /ip firewall filter add chain=input in-interface-list=WAN protocol=udp dst-port=$wgListenPort connection-state=new limit=20/5s,40 action=accept comment="WireGuard 新建速率限制"
+  /ip firewall filter add chain=input in-interface-list=WAN protocol=udp dst-port=$wgListenPort action=add-src-to-address-list address-list=global_blacklist address-list-timeout=1h log=yes log-prefix="WG-FLOOD " comment="WireGuard Flood -> 黑名单"
+}
+
 # ---------- Filter：INPUT 基线 + NEW非SYN硬化 ----------
 :log info "配置 Filter 规则与 IDS"
 :put "配置 Filter 规则与 IDS"
 
 /ip firewall filter add chain=input connection-state=established,related action=accept comment="INPUT EST/REL"
 /ip firewall filter add chain=input in-interface-list=LAN action=accept comment="LAN -> Router"
-/ip firewall filter add chain=input protocol=icmp limit=20,20 action=accept comment="INPUT ICMP limit"
+/ip firewall filter add chain=input protocol=icmp limit=5,10 action=accept comment="INPUT ICMP limit"
 
 /ip firewall filter add chain=input in-interface-list=WAN protocol=tcp dst-port=8291 src-address-list=mgmt-allow action=add-src-to-address-list address-list=mgmt-allow address-list-timeout=($mgmtAllowMinutes . "m") comment="WAN Winbox 续期"
 /ip firewall filter add chain=input in-interface-list=WAN protocol=tcp dst-port=8291 src-address-list=mgmt-allow action=accept comment="WAN Winbox 放行"
 /ip firewall filter add chain=input in-interface-list=WAN protocol=tcp dst-port=8291 connection-state=new limit=5/10s,10 action=add-src-to-address-list address-list=global_blacklist address-list-timeout=1d comment="WAN Winbox 新建速率异常"
+/ip firewall filter add chain=input in-interface-list=WAN protocol=tcp tcp-flags=syn connection-state=new connection-limit=50,32 action=add-src-to-address-list address-list=global_blacklist address-list-timeout=1d log=yes log-prefix="SYN-FLOOD " comment="SYN Flood -> 黑名单"
 
 /ip firewall filter add chain=input in-interface-list=WAN protocol=tcp connection-state=new tcp-flags=!syn action=drop comment="WAN INPUT：丢弃 NEW 非 SYN"
 
 /ip firewall filter add chain=input protocol=tcp psd=21,3s,3,1 action=add-src-to-address-list address-list=global_blacklist address-list-timeout=1d comment="端口扫描到黑名单"
 /ip firewall filter add chain=input src-address-list=global_blacklist action=drop comment="INPUT 全局黑名单"
 /ip firewall filter add chain=input connection-state=invalid action=drop comment="INPUT INVALID"
+/ip firewall filter add chain=input in-interface-list=WAN action=log log-prefix=($dropLogPrefix . " INPUT ") limit=10/1m,20 comment="INPUT 默认丢弃日志"
 /ip firewall filter add chain=input in-interface-list=WAN action=drop comment="INPUT 默认丢弃 WAN"
 
 # ---------- Filter：FORWARD ----------
 /ip firewall filter add chain=forward in-interface-list=WAN protocol=tcp connection-state=new tcp-flags=!syn action=drop comment="WAN FORWARD：丢弃 NEW 非 SYN"
 
 /ip firewall filter add chain=forward connection-state=established,related connection-mark=pbr-conn action=accept comment="PBR EST/REL 不FastTrack"
-/ip firewall filter add chain=forward connection-state=established,related connection-mark=!pbr-conn connection-nat-state=!dstnat action=fasttrack-connection comment="FASTTRACK（跳过DSTNAT）"
+/ip firewall filter add chain=forward connection-state=established,related connection-mark=!pbr-conn connection-nat-state=!dstnat connection-bytes=0-1048576 action=fasttrack-connection comment="FASTTRACK（跳过DSTNAT）"
 /ip firewall filter add chain=forward connection-state=established,related action=accept comment="FWD EST/REL 兜底"
 
-/ip firewall filter add chain=forward protocol=icmp limit=50,50 action=accept comment="FWD ICMP limit"
+/ip firewall filter add chain=forward protocol=icmp limit=20,40 action=accept comment="FWD ICMP limit"
+/ip firewall filter add chain=forward in-interface-list=WAN protocol=tcp tcp-flags=syn connection-state=new connection-limit=80,32 action=add-src-to-address-list address-list=global_blacklist address-list-timeout=1d log=yes log-prefix="FWD-SYN " comment="FWD SYN Flood -> 黑名单"
 /ip firewall filter add chain=forward connection-state=invalid action=drop comment="FWD INVALID"
 /ip firewall filter add chain=forward in-interface-list=LAN out-interface-list=WAN action=accept comment="LAN -> WAN"
 /ip firewall filter add chain=forward in-interface-list=WAN out-interface-list=LAN connection-nat-state=dstnat action=accept comment="端口转发回流"
 /ip firewall filter add chain=forward in-interface-list=LAN out-interface-list=LAN connection-nat-state=dstnat action=accept comment="Hairpin LAN↔LAN"
+/ip firewall filter add chain=forward action=log log-prefix=($dropLogPrefix . " FWD ") limit=10/1m,20 comment="FWD 默认丢弃日志"
 /ip firewall filter add chain=forward action=drop comment="FWD 默认丢弃"
 
 # ---------- Mangle：PBR + MSS ----------
@@ -237,7 +265,7 @@
 /ip service set www-ssl disabled=yes
 /ip service set api disabled=yes
 /ip service set api-ssl disabled=yes
-/ip service set ssh address=192.168.0.0/16,10.0.0.0/8
+/ip service set ssh address=$lanSubnet
 /ip firewall service-port set sip disabled=yes
 /ip firewall service-port set ftp disabled=yes
 /ip firewall service-port set tftp disabled=yes
@@ -278,13 +306,22 @@
 
 /ipv6 firewall raw add chain=prerouting in-interface-list=WAN src-address=fe80::/10 protocol=icmpv6 action=accept comment="允许 WAN ICMPv6 link-local"
 /ipv6 firewall raw add chain=prerouting in-interface-list=WAN src-address=fe80::/10 action=drop comment="丢弃 WAN 非 ICMPv6 的 link-local"
+:local bogon6List {"::/128"="未指定地址";"::1/128"="回环";"::ffff:0:0/96"="IPv4映射";"fc00::/7"="ULA"}
+:foreach addr,desc in=$bogon6List do={
+  :if ([:len [/ipv6 firewall address-list find where list=IPV6-BOGON and address=$addr]] = 0) do={
+    /ipv6 firewall address-list add list=IPV6-BOGON address=$addr comment=$desc
+  }
+}
+/ipv6 firewall raw add chain=prerouting in-interface-list=WAN src-address-list=IPV6-BOGON action=drop comment="IPv6 Bogon 源自 WAN 直丢"
 
 /ipv6 firewall filter add chain=input connection-state=established,related action=accept
-/ipv6 firewall filter add chain=input protocol=icmpv6 action=accept
+/ipv6 firewall filter add chain=input protocol=icmpv6 limit=20,40 action=accept comment="IPv6 ICMP limit"
 /ipv6 firewall filter add chain=input in-interface-list=LAN action=accept
+/ipv6 firewall filter add chain=input action=log log-prefix=($dropLogPrefix . " V6-IN ") limit=5/1m,10 comment="IPv6 INPUT 默认丢弃日志"
 /ipv6 firewall filter add chain=input action=drop comment="IPv6 INPUT 默认丢弃"
 /ipv6 firewall filter add chain=forward connection-state=established,related action=accept
 /ipv6 firewall filter add chain=forward in-interface-list=LAN out-interface-list=WAN action=accept
+/ipv6 firewall filter add chain=forward action=log log-prefix=($dropLogPrefix . " V6-FWD ") limit=5/1m,10 comment="IPv6 FWD 默认丢弃日志"
 /ipv6 firewall filter add chain=forward action=drop comment="IPv6 FWD 默认丢弃"
 
 # ---------- Netwatch + 去抖健康播报 ----------
@@ -405,6 +442,7 @@
 :put "调整连接跟踪容量"
 
 /ip firewall connection tracking set \
+  max-entries=$conntrackMax \
   tcp-established-timeout=1d \
   tcp-close-wait-timeout=10s \
   tcp-fin-wait-timeout=10s \
@@ -424,6 +462,7 @@
   :global ReplaceAll
   :global backupPassword
   :global backupMaxKeep
+  :global backupExportRsc
 
   :local d [/system clock get date]
   :local t [/system clock get time]
@@ -437,7 +476,11 @@
     :if ([:len $backupPassword] > 0) do={ /system backup save name=$bkName password=$backupPassword } else={ /system backup save name=$bkName }
   } on-error={ :log error ("备份失败 .backup " . $bkName) }
 
-  :do { /export file=$bkName compact } on-error={ :log error ("导出失败 .rsc " . $bkName) }
+  :if ($backupExportRsc = true) do={
+    :do { /export file=$bkName compact } on-error={ :log error ("导出失败 .rsc " . $bkName) }
+  } else={
+    :log info "跳过 .rsc 导出（backupExportRsc=false）"
+  }
 
   :local flist [/file find where name~"^bk-"]
   :local count [:len $flist]
@@ -460,7 +503,9 @@
     }
   }
 
-  :local msg ("【RouterOS 备份完成】\n名称：" . $bkName . "\n包含：.backup + .rsc\n保留数量：<=" . $backupMaxKeep)
+  :local includeList ".backup"
+  :if ($backupExportRsc = true) do={ :set includeList ($includeList . " + .rsc") }
+  :local msg ("【RouterOS 备份完成】\n名称：" . $bkName . "\n包含：" . $includeList . "\n保留数量：<=" . $backupMaxKeep)
   :log info $msg
   :put $msg
   $NotifyTG $msg ""
@@ -483,10 +528,14 @@
 :if ([:len $id2r] > 0) do={ :set ip2r [/ip address get $id2r value-name=address] }
 :local idlr [/ip address find where interface=$lanInterface]
 :if ([:len $idlr] > 0) do={ :set lpr [/ip address get $idlr value-name=address] }
+:local wgSummary "未启用"
+:if ($wgListenPort > 0) do={ :set wgSummary ("端口=" . $wgListenPort . " (限流+黑名单)") }
+:local backupSummary ".backup"
+:if ($backupExportRsc = true) do={ :set backupSummary ($backupSummary . "+.rsc") }
 
 :local nowD2 [/system clock get date]
 :local nowT2 [/system clock get time]
-:local summary ("【初始化完成 v5.3.1-FIX】\nLAN=" . $lpr . "\nWAN1=" . $ip1r . "\nWAN2=" . $ip2r . "\nSSH转发=已取消\n跳板机=未配置\n敲门放行=" . $mgmtAllowMinutes . "分钟\nWAN管理：仅Winbox（8291）\nSSH强化：强加密+禁转发\nconntrack=" . $conntrackMax . "\n备份保留=" . $backupMaxKeep . "\n去抖阈值=" . $debounceThreshold . "\nBogon防护：11段完整\nHairpin：泛化DSTNAT\n修复：幂等创建地址列表\n时间：" . $nowD2 . " " . $nowT2)
+:local summary ("【初始化完成 v5.3.1-FIX】\nLAN=" . $lpr . "\nWAN1=" . $ip1r . "\nWAN2=" . $ip2r . "\nSSH转发=已取消\nSSH来源=" . $lanSubnet . "\nWireGuard=" . $wgSummary . "\n敲门放行=" . $mgmtAllowMinutes . "分钟（含限速日志）\nWAN管理：仅Winbox（8291）\nSYN/端口扫描：自动黑名单\nconntrack=" . $conntrackMax . "\n备份保留=" . $backupMaxKeep . "（包含=" . $backupSummary . "）\n去抖阈值=" . $debounceThreshold . "\nBogon防护：IPv4+IPv6 完整\nHairpin：泛化DSTNAT\n时间：" . $nowD2 . " " . $nowT2)
 :log info $summary
 :put $summary
 :global NotifyTG
