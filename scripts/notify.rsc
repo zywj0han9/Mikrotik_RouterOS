@@ -6,9 +6,7 @@
     :local TGBOTTOKEN ""
     :local TGUSERID ""
     :local TGAPIHOST "https://api.telegram.org"
-    :put $TGBOTTOKEN
-    :put $TGUSERID
-    :put $TGAPIHOST
+
     :put ("MikroTik RouterOS send: $message")
 
     :local TGAPIURL ($TGAPIHOST . "/bot" . $TGBOTTOKEN . "/sendMessage?chat_id=" . $TGUSERID . "&text=" . $message)
